@@ -1,0 +1,36 @@
+[project]
+name = "ayuda-diagnostica"
+version = "1.0.0"
+description = "Herramienta de apoyo diagnostico para deteccion de metastasis en imagenes histopatologicas"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "python-multipart>=0.0.20",
+    "numpy>=1.26",
+    "Pillow>=10.0",
+    "h5py>=3.10",
+    "scikit-learn>=1.4",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+cuda = [
+    "torch>=2.5",
+    "torchvision>=0.20",
+]
+
+[project.scripts]
+serve = "scripts.commands:serve"
+train = "scripts.commands:train"
+evaluate = "scripts.commands:evaluate"
+download-data = "scripts.commands:download_data"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["backend*", "model*", "scripts*"]

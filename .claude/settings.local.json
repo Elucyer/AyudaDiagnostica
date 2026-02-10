@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(pip:*)",
+      "Bash(nvidia-smi:*)",
+      "Bash(poetry --version:*)",
+      "Bash(make:*)",
+      "Bash(choco:*)",
+      "Bash(winget:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(npx create-next-app:*)",
+      "Bash(npm run build:*)",
+      "Bash(del:*)",
+      "Bash(docker:*)"
+    ]
+  }
+}
