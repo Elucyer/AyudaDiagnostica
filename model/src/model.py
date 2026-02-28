@@ -20,10 +20,10 @@ def create_model(pretrained=True, freeze_backbone=True):
     in_features = model.classifier[1].in_features  # 1536 para B3
 
     model.classifier = nn.Sequential(
-        nn.Dropout(p=0.3),
+        nn.Dropout(p=0.5),
         nn.Linear(in_features, 512),
         nn.ReLU(),
-        nn.Dropout(p=0.2),
+        nn.Dropout(p=0.3),
         nn.Linear(512, 1),
     )
 

@@ -12,6 +12,8 @@ export interface PredictionResponse {
   confidence: number;
   threshold: number;
   heatmap_base64: string;
+  gradcam_pp_base64: string;
+  bounding_box_base64: string;
   metrics: ModelMetrics;
   disclaimer: string;
 }

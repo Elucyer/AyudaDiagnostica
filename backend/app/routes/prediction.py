@@ -5,7 +5,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from ..schemas.prediction import PredictionResponse
 from ..services.model_service import model_service
-from ..services.gradcam_service import generate_heatmap_base64
+from ..services.gradcam_service import generate_visualizations
 
 router = APIRouter()
 
@@ -58,14 +58,16 @@ async def predict(file: UploadFile = File(...)):
     # Predicción
     probability, label = model_service.predict(image)
 
-    # Grad-CAM heatmap
-    heatmap_b64 = generate_heatmap_base64(image)
+    # Visualizaciones: Grad-CAM, Grad-CAM++ y bounding box
+    visuals = generate_visualizations(image)
 
     return PredictionResponse(
         prediction=label,
         confidence=round(probability, 4),
         threshold=model_service.threshold,
-        heatmap_base64=heatmap_b64,
+        heatmap_base64=visuals["gradcam"],
+        gradcam_pp_base64=visuals["gradcam_pp"],
+        bounding_box_base64=visuals["bounding_box"],
         metrics=_load_model_metrics(),
         disclaimer=DISCLAIMER,
     )

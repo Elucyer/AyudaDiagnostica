@@ -105,6 +105,8 @@ export default function DiagnosticoPage() {
             <HeatmapOverlay
               originalSrc={preview}
               heatmapBase64={result.heatmap_base64}
+              gradcamPpBase64={result.gradcam_pp_base64}
+              boundingBoxBase64={result.bounding_box_base64}
             />
           )}
 

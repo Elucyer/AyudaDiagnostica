@@ -58,15 +58,27 @@ class PCamDataset(Dataset):
 
 
 def get_train_transforms():
+    """Augmentación orientada a variabilidad de tinción H&E.
+
+    - Flips y rotaciones: imágenes histológicas no tienen orientación canónica.
+    - ColorJitter amplio: simula diferencias de tinción entre laboratorios/slides.
+    - GaussianBlur: simula variaciones de foco del microscopio.
+    """
     return transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
-        transforms.RandomApply([transforms.RandomRotation(90)], p=0.5),
+        transforms.RandomApply([transforms.RandomRotation(90)], p=0.75),
         transforms.RandomApply([
             transforms.ColorJitter(
-                brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05
+                brightness=0.3,
+                contrast=0.3,
+                saturation=0.3,   # variabilidad de intensidad de tinción
+                hue=0.08,         # variabilidad de tono H&E entre laboratorios
             )
-        ], p=0.3),
+        ], p=0.5),
+        transforms.RandomApply([
+            transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.0))
+        ], p=0.2),
         transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
     ])
 

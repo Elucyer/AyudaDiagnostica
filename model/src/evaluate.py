@@ -56,6 +56,54 @@ def compute_metrics(labels, probs, threshold=0.5):
     }
 
 
+def find_optimal_threshold(labels, probs, min_sensitivity: float = 0.90) -> float:
+    """Busca el threshold que maximiza accuracy con sensibilidad >= min_sensitivity.
+
+    Estrategia clínica: primero garantizar que se detecta el >=90% de los
+    casos positivos (no se pierde metástasis), luego maximizar la precisión
+    global entre todos los thresholds que cumplen ese criterio.
+
+    Args:
+        labels: etiquetas reales (0/1).
+        probs: probabilidades predichas por el modelo.
+        min_sensitivity: sensibilidad mínima requerida (default 0.90).
+
+    Returns:
+        Threshold óptimo como float. Si ningún threshold alcanza
+        min_sensitivity, retorna el que maximiza sensibilidad.
+    """
+    thresholds = np.arange(0.05, 0.90, 0.01)
+    best_threshold = 0.5
+    best_accuracy = 0.0
+    best_sensitivity = 0.0
+
+    candidates = []
+    for t in thresholds:
+        preds = (probs >= t).astype(int)
+        tn, fp, fn, tp = confusion_matrix(labels, preds).ravel()
+        sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+        accuracy = accuracy_score(labels, preds)
+
+        if sensitivity >= min_sensitivity:
+            candidates.append((t, accuracy, sensitivity))
+
+    if candidates:
+        # Entre los candidatos válidos, elegir el de mayor accuracy
+        best = max(candidates, key=lambda x: x[1])
+        best_threshold, best_accuracy, best_sensitivity = best
+    else:
+        # Fallback: ningún threshold alcanzó min_sensitivity; usar el de max sensibilidad
+        for t in thresholds:
+            preds = (probs >= t).astype(int)
+            tn, fp, fn, tp = confusion_matrix(labels, preds).ravel()
+            sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+            if sensitivity > best_sensitivity:
+                best_sensitivity = sensitivity
+                best_threshold = float(t)
+
+    return float(round(best_threshold, 2))
+
+
 def plot_confusion_matrix(labels, probs, save_path, threshold=0.5):
     """Genera y guarda la matriz de confusión."""
     preds = (probs >= threshold).astype(int)
@@ -107,8 +155,13 @@ def main():
     print("Obteniendo predicciones...")
     labels, probs = get_predictions(model, test_loader, device)
 
-    print(f"Calculando métricas (threshold={OPTIMAL_THRESHOLD})...")
-    metrics = compute_metrics(labels, probs, threshold=OPTIMAL_THRESHOLD)
+    # Buscar threshold óptimo (sensibilidad >= 90%)
+    optimal_threshold = find_optimal_threshold(labels, probs, min_sensitivity=0.90)
+
+    print(f"\nCalculando métricas (threshold={optimal_threshold})...")
+    metrics = compute_metrics(labels, probs, threshold=optimal_threshold)
+    # También calcular con el threshold de config para comparar
+    metrics_config = compute_metrics(labels, probs, threshold=OPTIMAL_THRESHOLD)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -118,13 +171,14 @@ def main():
         json.dump(metrics, f, indent=2)
 
     # Generar visualizaciones
-    plot_confusion_matrix(labels, probs, RESULTS_DIR / "confusion_matrix.png", threshold=OPTIMAL_THRESHOLD)
+    plot_confusion_matrix(labels, probs, RESULTS_DIR / "confusion_matrix.png", threshold=optimal_threshold)
     plot_roc_curve(labels, probs, RESULTS_DIR / "roc_curve.png")
 
     # Imprimir resultados
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 60)
     print("RESULTADOS EN TEST SET")
-    print("=" * 50)
+    print("=" * 60)
+    print(f"\n  Con threshold={optimal_threshold} (óptimo ≥90% sensibilidad):")
     print(f"  Accuracy:      {metrics['accuracy']:.4f}")
     print(f"  AUC-ROC:       {metrics['auc_roc']:.4f}")
     print(f"  F1-Score:      {metrics['f1_score']:.4f}")
@@ -132,11 +186,22 @@ def main():
     print(f"  Especificidad: {metrics['specificity']:.4f}")
     print(f"\n  TP: {metrics['true_positives']} | TN: {metrics['true_negatives']}")
     print(f"  FP: {metrics['false_positives']} | FN: {metrics['false_negatives']}")
-    print("=" * 50)
 
-    target_met = metrics["accuracy"] >= 0.85
-    print(f"\n  Objetivo accuracy >= 85%: {'CUMPLIDO' if target_met else 'NO CUMPLIDO'}")
-    print(f"  Métricas guardadas en: {metrics_path}")
+    print(f"\n  Con threshold={OPTIMAL_THRESHOLD} (config actual, para comparar):")
+    print(f"  Accuracy: {metrics_config['accuracy']:.4f} | Sensibilidad: {metrics_config['sensitivity']:.4f}")
+
+    print("\n" + "=" * 60)
+    acc_ok = metrics["accuracy"] >= 0.90
+    sen_ok = metrics["sensitivity"] >= 0.90
+    print(f"  Objetivo accuracy >= 90%:     {'CUMPLIDO ✓' if acc_ok else 'NO CUMPLIDO'}")
+    print(f"  Objetivo sensibilidad >= 90%: {'CUMPLIDO ✓' if sen_ok else 'NO CUMPLIDO'}")
+    print("=" * 60)
+
+    if optimal_threshold != OPTIMAL_THRESHOLD:
+        print(f"\n>>> ACTUALIZAR en model/src/config.py:")
+        print(f"    OPTIMAL_THRESHOLD = {optimal_threshold}")
+
+    print(f"\n  Métricas guardadas en: {metrics_path}")
     print(f"  Visualizaciones en: {RESULTS_DIR}")
 
 

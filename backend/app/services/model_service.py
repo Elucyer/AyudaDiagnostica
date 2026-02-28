@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
-import numpy as np
 import torch
+import torchvision.transforms.functional as TF
 from torchvision import transforms
 from PIL import Image
 
@@ -17,7 +17,7 @@ from model import load_model
 
 
 class ModelService:
-    """Singleton que carga el modelo y realiza inferencia."""
+    """Singleton que carga el modelo y realiza inferencia con TTA."""
 
     def __init__(self):
         self.model = None
@@ -45,21 +45,48 @@ class ModelService:
         tensor = self.transform(image)
         return tensor.unsqueeze(0).to(self.device)  # (1, 3, 96, 96)
 
+    def _tta_views(self, tensor: torch.Tensor) -> list[torch.Tensor]:
+        """Genera 8 vistas aumentadas para Test-Time Augmentation.
+
+        Usa las 4 rotaciones (0°, 90°, 180°, 270°) × flip horizontal,
+        que son las transformaciones simétricas válidas para imágenes
+        histopatológicas (no tienen orientación canónica).
+        """
+        t = tensor.squeeze(0)  # (3, 96, 96)
+        return [
+            t,
+            TF.hflip(t),
+            TF.rotate(t, 90),
+            TF.hflip(TF.rotate(t, 90)),
+            TF.rotate(t, 180),
+            TF.hflip(TF.rotate(t, 180)),
+            TF.rotate(t, 270),
+            TF.hflip(TF.rotate(t, 270)),
+        ]
+
     @torch.no_grad()
     def predict(self, image: Image.Image) -> tuple[float, str]:
-        """Predice si una imagen tiene metástasis.
+        """Predice si una imagen tiene metástasis usando TTA (8 vistas).
+
+        Promedia las probabilidades sobre 8 versiones rotadas/volteadas
+        de la imagen, mejorando la robustez de la predicción.
 
         Returns:
-            (probability, label): probabilidad y etiqueta predicha.
+            (probability, label): probabilidad media y etiqueta predicha.
         """
-        input_tensor = self.preprocess(image)
-        output = self.model(input_tensor).squeeze()
-        probability = torch.sigmoid(output).item()
+        base = self.preprocess(image)
+
+        probs = [
+            torch.sigmoid(self.model(v.unsqueeze(0)).squeeze()).item()
+            for v in self._tta_views(base)
+        ]
+
+        probability = sum(probs) / len(probs)
         label = "metastasis" if probability >= self.threshold else "normal"
         return probability, label
 
     def get_input_tensor(self, image: Image.Image) -> torch.Tensor:
-        """Retorna el tensor preprocesado (para Grad-CAM)."""
+        """Retorna el tensor preprocesado (para Grad-CAM, sin TTA)."""
         return self.preprocess(image)
 
 

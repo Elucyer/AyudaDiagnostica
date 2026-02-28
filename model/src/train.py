@@ -1,7 +1,9 @@
 import sys
 import json
+import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from sklearn.metrics import roc_auc_score
@@ -12,9 +14,55 @@ from config import (
     PHASE1_EPOCHS, PHASE1_LR,
     PHASE2_EPOCHS, PHASE2_LR,
     WEIGHT_DECAY, PATIENCE, BEST_MODEL_PATH,
+    MIXUP_ALPHA,
 )
 from dataset import get_dataloaders
 from model import create_model, unfreeze_backbone
+
+
+class FocalLoss(nn.Module):
+    """Focal Loss para clasificación binaria histopatológica.
+
+    Reduce el peso de los ejemplos fáciles (tejido claramente normal)
+    y concentra el entrenamiento en los casos difíciles de metástasis
+    sutil, reduciendo los falsos negativos.
+
+    Args:
+        alpha: peso para ejemplos positivos (0.75 prioriza sensibilidad).
+        gamma: factor de enfoque; gamma=2 es el valor estándar (Lin et al., 2017).
+    """
+
+    def __init__(self, alpha: float = 0.75, gamma: float = 2.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        bce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+        p = torch.sigmoid(logits)
+        p_t = p * targets + (1 - p) * (1 - targets)
+        alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+        focal_weight = alpha_t * (1 - p_t) ** self.gamma
+        return (focal_weight * bce).mean()
+
+
+def mixup_batch(images: torch.Tensor, labels: torch.Tensor, alpha: float):
+    """Aplica MixUp a un batch: mezcla pares de ejemplos e interpola etiquetas.
+
+    Crea ejemplos sintéticos `x_mix = λ·xᵢ + (1-λ)·xⱼ` con etiquetas suaves
+    `y_mix = λ·yᵢ + (1-λ)·yⱼ`. El modelo aprende a no memorizar ejemplos
+    individuales sino a interpolar correctamente el espacio de características.
+
+    Args:
+        alpha: parámetro de la distribución Beta. 0.4 produce mezclas moderadas.
+
+    Returns:
+        (mixed_images, labels_a, labels_b, lam)
+    """
+    lam = float(np.random.beta(alpha, alpha))
+    idx = torch.randperm(images.size(0), device=images.device)
+    mixed = lam * images + (1 - lam) * images[idx]
+    return mixed, labels, labels[idx], lam
 
 
 def train_one_epoch(model, loader, criterion, optimizer, device):
@@ -30,19 +78,25 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
         images = images.to(device)
         labels = labels.to(device)
 
+        # MixUp: mezcla el batch con una permutación aleatoria de sí mismo
+        images, labels_a, labels_b, lam = mixup_batch(images, labels, MIXUP_ALPHA)
+
         optimizer.zero_grad()
         outputs = model(images).squeeze(1)
-        loss = criterion(outputs, labels)
+        # Pérdida interpolada con las dos etiquetas del par mezclado
+        loss = lam * criterion(outputs, labels_a) + (1 - lam) * criterion(outputs, labels_b)
         loss.backward()
         optimizer.step()
 
         running_loss += loss.item() * images.size(0)
         probs = torch.sigmoid(outputs).detach()
         preds = (probs >= 0.5).float()
-        correct += (preds == labels).sum().item()
-        total += labels.size(0)
+        # Accuracy aproximada durante entrenamiento (usando etiqueta dominante)
+        correct += (lam * (preds == labels_a).float() + (1 - lam) * (preds == labels_b).float()).sum().item()
+        total += labels_a.size(0)
 
-        all_labels.extend(labels.cpu().numpy())
+        # Para AUC se usan las etiquetas originales (labels_a = batch sin permutar)
+        all_labels.extend(labels_a.cpu().numpy())
         all_probs.extend(probs.cpu().numpy())
 
         pbar.set_postfix(loss=loss.item(), acc=correct / total)
@@ -158,7 +212,8 @@ def main():
     print("Cargando datos...")
     train_loader, valid_loader, _ = get_dataloaders()
 
-    criterion = nn.BCEWithLogitsLoss()
+    # Focal Loss: alpha=0.75 prioriza sensibilidad (detección de metástasis)
+    criterion = FocalLoss(alpha=0.75, gamma=2.0)
     all_history = []
 
     # === FASE 1: Entrenar solo el classifier ===
@@ -183,10 +238,12 @@ def main():
 
     # === FASE 2: Fine-tuning completo ===
     print("\n" + "=" * 60)
-    print("FASE 2: Fine-tuning completo (backbone descongelado)")
+    print("FASE 2: Fine-tuning completo (descongelando desde bloque 3)")
     print("=" * 60)
 
-    model = unfreeze_backbone(model, unfreeze_from=5)
+    # unfreeze_from=3 libera los bloques 3-7 (vs. 5-7 anterior),
+    # permitiendo que más capas del backbone se adapten a H&E.
+    model = unfreeze_backbone(model, unfreeze_from=3)
 
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
@@ -209,6 +266,7 @@ def main():
     print(f"\nEntrenamiento completado. Mejor AUC: {best_auc:.4f}")
     print(f"Modelo guardado en: {BEST_MODEL_PATH}")
     print(f"Historial guardado en: {history_path}")
+    print("\n>>> Ejecuta evaluate.py para calcular el threshold óptimo <<<")
 
 
 if __name__ == "__main__":
