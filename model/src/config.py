@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 # Rutas del proyecto
@@ -18,7 +19,7 @@ PCAM_TEST_Y = DATA_DIR / "camelyonpatch_level_2_split_test_y.h5"
 IMAGE_SIZE = 96
 BATCH_SIZE = 64
 NUM_WORKERS = 4
-DEVICE = "cuda"
+DEVICE = os.environ.get("DEVICE", "cuda")
 
 # Fase 1: Entrenar solo el classifier
 PHASE1_EPOCHS = 5

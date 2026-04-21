@@ -7,14 +7,22 @@ services:
       - "8000:8000"
     environment:
       - DEVICE=cpu
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
       - "3000:3000"
     depends_on:
-      - backend
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      backend:
+        condition: service_healthy
