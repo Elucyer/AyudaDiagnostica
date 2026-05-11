@@ -47,7 +47,7 @@ def unfreeze_backbone(model, unfreeze_from=5):
 def load_model(checkpoint_path, device="cuda"):
     """Carga un modelo desde un checkpoint."""
     model = create_model(pretrained=False, freeze_backbone=False)
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
     model.eval()
