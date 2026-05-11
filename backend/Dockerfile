@@ -5,6 +5,7 @@ WORKDIR /app
 # Instalar dependencias del sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar e instalar dependencias Python (CPU-only para deploy ligero)
@@ -18,8 +19,12 @@ COPY backend/ /app/backend/
 # Copiar model/src (config, model, gradcam)
 COPY model/src/ /app/model/src/
 
-# Copiar pesos del modelo y metricas
-COPY model/checkpoints/best_model.pth /app/model/checkpoints/best_model.pth
+# Descargar pesos del modelo desde Hugging Face
+RUN mkdir -p /app/model/checkpoints && \
+    wget -q -O /app/model/checkpoints/best_model.pth \
+    "https://huggingface.co/Elcuyer/Eyuda-diagnostica/resolve/main/best_model.pth"
+
+# Copiar metricas del modelo
 COPY model/results/test_metrics.json /app/model/results/test_metrics.json
 
 EXPOSE 8000
