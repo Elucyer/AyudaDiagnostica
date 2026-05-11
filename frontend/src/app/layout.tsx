@@ -47,6 +47,12 @@ export default function RootLayout({
                 Inicio
               </a>
               <a
+                href="/dossier"
+                className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                Dossier
+              </a>
+              <a
                 href="/diagnostico"
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
               >
